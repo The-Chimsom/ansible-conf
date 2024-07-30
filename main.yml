@@ -34,6 +34,9 @@
       loop:
         - { path: /opt/stage_5b, owner: "{{ user }}", group: "{{ user }}", mode: '0755' }
         - { path: /var/secrets, owner: root, group: root, mode: '0700' }
+        - { path: /etc/nginx/sites-available, owner: root, group: root, mode: '0755' }
+        - { path: /etc/nginx/sites-enabled, owner: root, group: root, mode: '0755' }
+
 
     - name: Check if sudo group exists
       command: getent group sudo
