@@ -1,0 +1,166 @@
+---
+- name: Ansible Automated Deployment and Configuration
+  hosts: all
+  become: yes
+  vars:
+    repo_url: 'https://github.com/hngprojects/hng_boilerplate_python_fastapi_web'
+    repo_branch: 'devops'
+    app_directory: '/opt/stage_5b'
+    user: 'hng'
+    pg_admin_user: 'admin'
+    pg_admin_password: 'temporal'
+    secrets_file: '/var/secrets/pg_pw.txt'
+    nginx_config: '/etc/nginx/sites-available/stage_5b'
+    nginx_link: '/etc/nginx/sites-enabled/stage_5b'
+    error_log: '/var/log/stage_5b/error.log'
+    out_log: '/var/log/stage_5b/out.log'
+    app_port: 3000
+
+  tasks:
+    - name: Create user hng with sudo privileges
+      user:
+        name: "{{ user }}"
+        createhome: yes
+        groups: sudo
+
+    - name: Create necessary directories
+      file:
+        path: "{{ item.path }}"
+        state: directory
+        owner: "{{ item.owner }}"
+        group: "{{ item.group }}"
+        mode: "{{ item.mode }}"
+      loop:
+        - { path: /opt/stage_5b, owner: "{{ user }}", group: "{{ user }}", mode: '0755' }
+        - { path: /var/secrets, owner: root, group: root, mode: '0700' }
+
+    - name: Check if sudo group exists
+      command: getent group sudo
+      register: sudo_group_result
+      ignore_errors: yes
+
+    - name: Create sudo group if it doesn't exist
+      group:
+        name: sudo
+        state: present
+      when: sudo_group_result.rc != 0
+
+    - name: Display message if sudo group exists
+      debug:
+        msg: "The 'sudo' group already exists."
+      when: sudo_group_result.rc == 0
+
+    - name: Display message if sudo group was created
+      debug:
+        msg: "The 'sudo' group was created."
+      when: sudo_group_result.rc != 0
+
+    - name: Clone the repository
+      git:
+        repo: "{{ repo_url }}"
+        dest: "{{ app_directory }}"
+        version: "{{ repo_branch }}"
+        force: yes
+      become: true
+      become_user: "{{ user }}"
+
+    - name: Install required packages
+      apt:
+        name:
+          - git
+          - postgresql
+          - python3-pip
+          - python3-venv
+          - python3-psycopg2
+        state: present
+        update_cache: yes
+
+    - name: Add the Nginx signing key
+      apt_key:
+        url: https://nginx.org/keys/nginx_signing.key
+        state: present
+
+    - name: Add the Nginx APT repository
+      apt_repository:
+        repo: deb [arch=amd64] http://nginx.org/packages/ubuntu jammy nginx
+        state: present
+      register: nginx_repo_output
+
+    - name: Update the APT cache
+      apt:
+        update_cache: yes
+
+    - name: Install Nginx 1.26
+      apt:
+        name: nginx=1.26.0-1~jammy
+        state: present
+
+    - name: Replace default Nginx configuration
+      template:
+        src: nginx.j2
+        dest: /etc/nginx/conf.d/default.conf
+      notify: Reload Nginx
+
+    - name: Save PostgreSQL admin credentials
+      copy:
+        content: "user={{ pg_admin_user }}\npassword={{ pg_admin_password }}\n"
+        dest: "{{ secrets_file }}"
+        owner: root
+        group: root
+        mode: '0600'
+
+    - name: Create and activate virtual environment
+      command: python3 -m venv "{{ app_directory }}/venv"
+      become: true
+      become_user: "{{ user }}"
+
+    - name: Install application dependencies
+      pip:
+        requirements: "{{ app_directory }}/requirements.txt"
+        virtualenv: "{{ app_directory }}/venv"
+        virtualenv_command: python3 -m venv
+      become: true
+      become_user: "{{ user }}"
+      when: ansible_facts['os_family'] == 'Debian'
+
+    - name: Ensure application runs on port 3000
+      systemd:
+        name: stage_5b
+        enabled: yes
+        state: started
+        daemon_reload: yes
+        exec_start: "{{ app_directory }}/venv/bin/python {{ app_directory }}/app.py"
+        environment:
+          DATABASE_URL: "postgres://{{ pg_admin_user }}:{{ pg_admin_password }}@localhost:5432/stage_5b"
+          APP_PORT: "{{ app_port }}"
+        stdout_logfile: "{{ out_log }}"
+        stderr_logfile: "{{ error_log }}"
+
+    - name: Set up Nginx to reverse proxy
+      template:
+        src: nginx.j2
+        dest: "{{ nginx_config }}"
+      notify: Reload Nginx
+
+    - name: Ensure Nginx config is enabled
+      file:
+        src: "{{ nginx_config }}"
+        dest: "{{ nginx_link }}"
+        state: link
+      notify: Reload Nginx
+
+    - name: Ensure logs are owned by hng user
+      file:
+        path: "{{ item }}"
+        state: touch
+        owner: "{{ user }}"
+        group: "{{ user }}"
+      loop:
+        - "{{ error_log }}"
+        - "{{ out_log }}"
+
+  handlers:
+    - name: Reload Nginx
+      service:
+        name: nginx
+        state: reloaded
