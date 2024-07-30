@@ -2,9 +2,11 @@
 - name: Ansible Automated Deployment and Configuration
   hosts: all
   become: yes
+  vars_files:
+    - become_password.yml
   vars:
     repo_url: 'https://github.com/hngprojects/hng_boilerplate_python_fastapi_web'
-    repo_branch: 'devops'
+    repo_branch: 'backend'
     app_directory: '/opt/stage_5b'
     user: 'hng'
     pg_admin_user: 'admin'
@@ -15,7 +17,6 @@
     error_log: '/var/log/stage_5b/error.log'
     out_log: '/var/log/stage_5b/out.log'
     app_port: 3000
-
   tasks:
     - name: Create user hng with sudo privileges
       user:
@@ -55,6 +56,15 @@
         msg: "The 'sudo' group was created."
       when: sudo_group_result.rc != 0
 
+    - name: Clone the repository
+      git:
+        repo: "{{ repo_url }}"
+        dest: "{{ app_directory }}"
+        version: "{{ repo_branch }}"
+        force: yes
+      become: true
+      become_user: "{{ user }}"
+
     - name: Install required packages
       apt:
         name:
@@ -65,15 +75,6 @@
           - python3-psycopg2
         state: present
         update_cache: yes
-        
-    - name: Clone the repository
-      git:
-        repo: "{{ repo_url }}"
-        dest: "{{ app_directory }}"
-        version: "{{ repo_branch }}"
-        force: yes
-      become: true
-      become_user: "{{ user }}"
 
     - name: Add the Nginx signing key
       apt_key:
@@ -110,31 +111,37 @@
         mode: '0600'
 
     - name: Create and activate virtual environment
-      command: python3 -m venv "{{ app_directory }}/venv"
+      command: python3 -m venv "{{ app_directory }}/.venv"
       become: true
       become_user: "{{ user }}"
 
     - name: Install application dependencies
       pip:
         requirements: "{{ app_directory }}/requirements.txt"
-        virtualenv: "{{ app_directory }}/venv"
+        virtualenv: "{{ app_directory }}/.venv"
         virtualenv_command: python3 -m venv
       become: true
       become_user: "{{ user }}"
       when: ansible_facts['os_family'] == 'Debian'
 
-    - name: Ensure application runs on port 3000
+    - name: Copy .env.sample to .env and update it accordingly
+      command: cp "{{ app_directory }}/.env.sample" "{{ app_directory }}/.env"
+      become: true
+      become_user: "{{ user }}"
+
+    - name: Create systemd service file for the application
+      template:
+        src: stage_5b.service.j2
+        dest: /etc/systemd/system/stage_5b.service
+
+    - name: Reload systemd to apply changes
+      command: systemctl daemon-reload
+
+    - name: Enable and start stage_5b service
       systemd:
         name: stage_5b
         enabled: yes
         state: started
-        daemon_reload: yes
-        exec_start: "{{ app_directory }}/venv/bin/python {{ app_directory }}/app.py"
-        environment:
-          DATABASE_URL: "postgres://{{ pg_admin_user }}:{{ pg_admin_password }}@localhost:5432/stage_5b"
-          APP_PORT: "{{ app_port }}"
-        stdout_logfile: "{{ out_log }}"
-        stderr_logfile: "{{ error_log }}"
 
     - name: Set up Nginx to reverse proxy
       template:
@@ -160,7 +167,7 @@
         - "{{ out_log }}"
 
   handlers:
-    - name: Reload Nginx
-      service:
-        name: nginx
-        state: reloaded
+  - name: Reload Nginx
+    service:
+      name: nginx
+      state: reloaded

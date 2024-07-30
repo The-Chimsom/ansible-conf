@@ -1,0 +1,17 @@
+[Unit]
+Description=Stage 5B Application
+After=network.target
+
+[Service]
+User={{ user }}
+Group={{ user }}
+WorkingDirectory={{ app_directory }}
+ExecStart={{ app_directory }}/.venv/bin/python {{ app_directory }}/main.py
+Environment="DATABASE_URL=postgres://{{ pg_admin_user }}:{{ pg_admin_password }}@localhost:5432/stage_5b"
+Environment="APP_PORT={{ app_port }}"
+StandardOutput=append:{{ out_log }}
+StandardError=append:{{ error_log }}
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
