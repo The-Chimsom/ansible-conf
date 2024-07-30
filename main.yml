@@ -159,6 +159,16 @@
         state: link
       notify: Reload Nginx
 
+    - name: Ensure log directories exist
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ user }}"
+        group: "{{ user }}"
+        mode: '0755'
+      loop:
+        - /var/log/stage_5b       
+
     - name: Ensure logs are owned by hng user
       file:
         path: "{{ item }}"
@@ -169,15 +179,7 @@
         - "{{ error_log }}"
         - "{{ out_log }}"
 
-    - name: Ensure log directories exist
-      file:
-        path: "{{ item }}"
-        state: directory
-        owner: "{{ user }}"
-        group: "{{ user }}"
-        mode: '0755'
-      loop:
-        - /var/log/stage_5b        
+       
 
   handlers:
   - name: Reload Nginx
