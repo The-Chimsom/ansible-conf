@@ -59,14 +59,6 @@
         msg: "The 'sudo' group was created."
       when: sudo_group_result.rc != 0
 
-    - name: Clone the repository
-      git:
-        repo: "{{ repo_url }}"
-        dest: "{{ app_directory }}"
-        version: "{{ repo_branch }}"
-        force: yes
-      become: true
-      become_user: "{{ user }}"
 
     - name: Install required packages
       apt:
@@ -78,6 +70,16 @@
           - python3-psycopg2
         state: present
         update_cache: yes
+
+    - name: Clone the repository
+      git:
+        repo: "{{ repo_url }}"
+        dest: "{{ app_directory }}"
+        version: "{{ repo_branch }}"
+        force: yes
+      become: true
+      become_user: "{{ user }}"
+
 
     - name: Add the Nginx signing key
       apt_key:
