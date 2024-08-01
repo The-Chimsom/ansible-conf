@@ -6,7 +6,7 @@
     - become_password.yml
   vars:
     repo_url: 'https://github.com/hngprojects/hng_boilerplate_python_fastapi_web'
-    repo_branch: 'backend'
+    repo_branch: 'devops'
     app_directory: '/opt/stage_5b'
     user: 'hng'
     pg_admin_user: 'admin'
